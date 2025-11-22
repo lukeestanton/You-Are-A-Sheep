@@ -1,8 +1,6 @@
 # YOU ARE A SHEEP
 
-**Current Status:** *DISSIDENT HUNT PROTOCOL ACTIVE*
-
-"You Are A Sheep" (formerly Comment Chaos) is a psychological resistance training tool disguised as a web game. The Algorithm predicts what you like, what you watch, and what you agree with. Your goal is to prove you are an outlier.
+"You Are A Sheep" is a psychological resistance training tool disguised as a web game. The Algorithm predicts what you like, what you watch, and what you agree with. Your goal is to prove you are an outlier.
 
 ## The Mission
 
