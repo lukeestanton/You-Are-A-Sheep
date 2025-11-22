@@ -6,8 +6,12 @@ import os
 import random
 from typing import Dict, List, Optional
 from uuid import uuid4
+import re
+import json
 
 import requests
+
+from db import init_db, save_round_to_pool, get_daily_pool, get_pool_size
 
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 
@@ -21,6 +25,7 @@ VIDEO_LINK = "https://www.youtube.com/watch?v="
 
 ROUND_CACHE: Dict[str, Dict] = {}
 
+init_db()
 
 class RoundNotFoundError(Exception):
     """Raised when the round identifier cannot be located."""
@@ -30,12 +35,63 @@ class InvalidGuessError(Exception):
     """Raised when a guess references a comment outside of the round."""
 
 
+def _parse_duration(duration_str: str) -> int:
+    match = re.match(r'PT(?:(\d+)M)?(?:(\d+)S)?', duration_str)
+    if not match:
+        return 0
+    
+    minutes = int(match.group(1) or 0)
+    seconds = int(match.group(2) or 0)
+    
+    return (minutes * 60) + seconds
+
+def _get_video_details(video_id: str):
+    params = {
+        "part": "contentDetails,snippet,status",
+        "id": video_id,
+        "key": API_KEY,
+    }
+    
+    try:
+        response = requests.get("https://www.googleapis.com/youtube/v3/videos", params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        items = data.get("items", [])
+        if not items:
+            return None
+            
+        item = items[0]
+        
+        status = item.get("status", {})
+        if not status.get("embeddable", True) or status.get("uploadStatus") != "processed":
+            print(f"Skipping video {video_id}: Not embeddable or not processed.")
+            return None
+            
+        duration_iso = item["contentDetails"]["duration"]
+        duration_seconds = _parse_duration(duration_iso)
+        
+        return {
+            "duration": duration_seconds,
+            "title": item["snippet"]["title"]
+        }
+        
+    except Exception as e:
+        print(f"Error fetching video details: {e}")
+        return None
+
 def _get_random_short(query: Optional[str] = None):
     default_search_terms = [
         "ludwig",
         "jschlatt",
         "squeex",
         "sambucha",
+        "dougdoug",
+        "northernlion",
+        "penguinz0",
+        "moistcr1tikal",
+        "mrbeast",
+        "veritasium"
     ]
     
     search_query = query if query else random.choice(default_search_terms)
@@ -62,11 +118,13 @@ def _get_random_short(query: Optional[str] = None):
         return None, None
 
     random_video = random.choice(items)
-
     video_id = random_video["id"]["videoId"]
-    title = random_video["snippet"]["title"]
+    
+    details = _get_video_details(video_id)
+    if not details or details["duration"] == 0:
+         return None, None
 
-    return video_id, title
+    return video_id, details["title"], details["duration"]
 
 
 def _get_top_comments(video_id: str, max_comments: int = 20) -> List[Dict]:
@@ -97,6 +155,9 @@ def _get_top_comments(video_id: str, max_comments: int = 20) -> List[Dict]:
             
             if len(comment_text) < 5:
                 continue
+            
+            if len(comment_text) > 140:
+                continue
 
             comments.append({
                 "id": comment_id,
@@ -113,120 +174,124 @@ def _get_top_comments(video_id: str, max_comments: int = 20) -> List[Dict]:
                 return []
         raise
 
-
 def get_game_round_data():
-    """Fetch a random short with enough comments to form a guessing round."""
+    populate_daily_pool(target_size=5)
+    pool = get_daily_pool()
+    if not pool:
+        raise Exception("No pool")
+    pool_item = random.choice(pool)
+    return get_round_from_pool_data(pool_item, option_count=3)
 
-    while True:
-        video_id, title = _get_random_short()
-        if not video_id:
+def generate_round_data(option_count: int):
+    """Fetches fresh data from YT and returns the full round structure, NOT saving to cache yet."""
+    attempts = 0
+    while attempts < 20:
+        attempts += 1
+        result = _get_random_short()
+        if not result or result[0] is None:
             continue
             
-        print(f"Attempting to fetch comments for video: {title} (ID: {video_id})")
-
-        comments = _get_top_comments(video_id)
+        video_id, title, duration = result
         
-        if not comments or len(comments) < 5: 
+        comments = _get_top_comments(video_id, max_comments=40)
+        
+        if not comments or len(comments) < 8: 
             continue
         
         sorted_comments = sorted(comments, key=lambda x: x["points"], reverse=True)
-
         top_comment = sorted_comments[0]
+        other_comments = sorted_comments[1:]
         
-        other_comments = [c for c in sorted_comments[1:]]
-        if not other_comments:
+        if len(other_comments) < 5:
             continue
-            
-        distractor = random.choice(other_comments)
-        
-        options = [top_comment, distractor]
-        random.shuffle(options)
 
         round_id = str(uuid4())
-        ROUND_CACHE[round_id] = {
-            "type": "guess_top",
+        
+        round_payload = {
+            "roundId": round_id,
+            "type": "dissident",
             "video_id": video_id,
             "video_link": VIDEO_LINK + video_id,
             "title": title,
+            "duration": duration,
             "correct_comment_id": top_comment["id"],
-            "options": options,
+            "top_comment": top_comment,
+            "other_comments": other_comments[:20]
         }
-
-        if len(ROUND_CACHE) > 50:
-            oldest_key = next(iter(ROUND_CACHE))
-            ROUND_CACHE.pop(oldest_key, None)
-
-        return {
-            "roundId": round_id,
-            "videoLink": VIDEO_LINK + video_id,
-            "options": [
-                {"commentId": option["id"], "text": option["text"]}
-                for option in options
-            ],
-        }
-
-
-def get_ranking_round_data(theme: str):
-    """
-    Fetch a short based on the theme and 5 comments for ranking.
-    """
-    attempts = 0
-    while attempts < 10:
-        attempts += 1
-        video_id, title = _get_random_short(query=theme)
-        if not video_id:
-            continue
-
-        print(f"Ranking Round: Fetching comments for {title} (Theme: {theme})")
-        try:
-            all_comments = _get_top_comments(video_id, max_comments=50)
-        except Exception as e:
-             print(f"Error fetching comments for {video_id}: {e}")
-             continue
-
-        if not all_comments:
-             continue
-
-        seen_text = set()
-        unique_comments = []
-        for c in all_comments:
-            if c["text"] not in seen_text:
-                unique_comments.append(c)
-                seen_text.add(c["text"])
-
-        if len(unique_comments) < 5:
-            print(f"Not enough unique comments ({len(unique_comments)}) for {video_id}")
-            continue
-            
-        selected_comments = random.sample(unique_comments[:20], 5)
+        return round_payload
         
-        round_id = str(uuid4())
-        ROUND_CACHE[round_id] = {
-            "type": "ranking",
-            "video_id": video_id,
-            "video_link": VIDEO_LINK + video_id,
-            "theme": theme,
-            "comments": selected_comments,
-        }
-        
-        if len(ROUND_CACHE) > 50:
-             oldest_key = next(iter(ROUND_CACHE))
-             ROUND_CACHE.pop(oldest_key, None)
+    return None
 
-        shuffled_options = selected_comments.copy()
-        random.shuffle(shuffled_options)
-        
-        return {
-            "roundId": round_id,
-            "videoLink": VIDEO_LINK + video_id,
-            "theme": theme,
-            "comments": [
-                {"id": c["id"], "text": c["text"]} 
-                for c in shuffled_options
-            ]
-        }
+def populate_daily_pool(target_size: int = 20):
+    """Ensures the daily pool has at least target_size videos."""
+    current_size = get_pool_size()
+    needed = target_size - current_size
     
-    raise Exception("Failed to find a valid video for the daily theme after multiple attempts.")
+    if needed <= 0:
+        return
+
+    print(f"Daily Pool: Generating {needed} new rounds...")
+    for _ in range(needed):
+        round_data = generate_round_data(option_count=6)
+        if round_data:
+            save_round_to_pool(round_data, theme="Random")
+            
+def get_round_from_pool_data(pool_item: Dict, option_count: int):
+    """Converts stored pool data into a playable round with specific option count."""
+    round_id = pool_item["roundId"]
+    
+    top_comment = pool_item["top_comment"]
+    other_comments = pool_item["other_comments"]
+    
+    distractors = random.sample(other_comments, min(len(other_comments), option_count - 1))
+    
+    options = [top_comment] + distractors
+    random.shuffle(options)
+    
+    ROUND_CACHE[round_id] = {
+        "type": "dissident",
+        "video_id": pool_item["video_id"],
+        "video_link": pool_item["video_link"],
+        "correct_comment_id": top_comment["id"],
+        "options": options
+    }
+    
+    return {
+        "roundId": round_id,
+        "videoLink": pool_item["video_link"],
+        "duration": pool_item["duration"],
+        "options": [
+            {"commentId": option["id"], "text": option["text"]}
+            for option in options
+        ],
+    }
+
+def get_daily_dissident_path():
+    """
+    Fetches 5 random unique videos from the daily pool.
+    Generates the path with 6 -> 2 options.
+    """
+    
+    populate_daily_pool(target_size=20)
+    
+    pool = get_daily_pool()
+    
+    if len(pool) < 5:
+        raise Exception("Daily pool generation failed, not enough videos.")
+        
+    selected_rounds = random.sample(pool, 5)
+    
+    selected_rounds.sort(key=lambda x: x["duration"], reverse=True)
+    
+    rounds_config = [4, 4, 3, 3, 2]
+    path_data = []
+    
+    for i, option_count in enumerate(rounds_config):
+        pool_item = selected_rounds[i]
+        game_round = get_round_from_pool_data(pool_item, option_count)
+        path_data.append(game_round)
+        
+    return path_data
 
 
 def evaluate_guess(round_id: str, comment_id: str):
@@ -235,71 +300,26 @@ def evaluate_guess(round_id: str, comment_id: str):
     if not round_payload:
         raise RoundNotFoundError("Round not found or has expired.")
     
-    if round_payload.get("type") == "ranking":
-         raise InvalidGuessError("This round is a ranking round, use submit_rank instead.")
-
-    option_lookup = {option["id"]: option for option in round_payload["options"]}
-
-    if comment_id not in option_lookup:
-        raise InvalidGuessError("Selected comment is not part of this round.")
-
-    correct_comment_id = round_payload["correct_comment_id"]
-    is_correct = comment_id == correct_comment_id
-
-    revealed_options = [
-        {
-            "commentId": option["id"],
-            "text": option["text"],
-            "likes": option["points"],
-            "isCorrect": option["id"] == correct_comment_id,
-        }
-        for option in round_payload["options"]
-    ]
-
-    revealed_options.sort(key=lambda option: option["likes"], reverse=True)
-
-    ROUND_CACHE.pop(round_id, None)
-
-    return {
-        "isCorrect": is_correct,
-        "selectedOptionId": comment_id,
-        "options": revealed_options,
-    }
-
-def evaluate_ranking(round_id: str, user_ranking: List[str]):
-    """
-    user_ranking: List of comment IDs in order from 1st place (most likes) to 5th place (least likes).
-    """
-    round_payload = ROUND_CACHE.get(round_id)
-    if not round_payload:
-        raise RoundNotFoundError("Round not found or has expired.")
-
-    if round_payload.get("type") != "ranking":
-         raise InvalidGuessError("This round is not a ranking round.")
-         
-    real_comments = round_payload["comments"]
-    sorted_real = sorted(real_comments, key=lambda x: x["points"], reverse=True)
-    
-    correct_order_ids = [c["id"] for c in sorted_real]
-    
-    total_deviation = 0
-    for predicted_rank, comment_id in enumerate(user_ranking):
-        try:
-            actual_rank = correct_order_ids.index(comment_id)
-            deviation = abs(predicted_rank - actual_rank)
-            total_deviation += deviation
-        except ValueError:
-             pass
-             
-    normalized_score = max(0, 100 - (total_deviation * 8.33))
-    
-    ROUND_CACHE.pop(round_id, None)
-    
-    return {
-        "score": int(normalized_score),
-        "userRanking": user_ranking,
-        "correctRanking": [
-            {"id": c["id"], "text": c["text"], "likes": c["points"]}
-            for c in sorted_real
+    if round_payload.get("type") == "dissident":
+        top_comment_id = round_payload["correct_comment_id"]
+        
+        is_win = comment_id != top_comment_id
+        
+        revealed_options = [
+            {
+                "commentId": option["id"],
+                "text": option["text"],
+                "likes": option["points"],
+                "isTop": option["id"] == top_comment_id,
+            }
+            for option in round_payload["options"]
         ]
-    }
+        revealed_options.sort(key=lambda x: x["likes"], reverse=True)
+        
+        return {
+            "isCorrect": is_win,
+            "selectedOptionId": comment_id,
+            "options": revealed_options
+        }
+
+    return {} 

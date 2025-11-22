@@ -1,20 +1,16 @@
 import React from 'react';
-import type { RankingResult } from '../api';
+import type { GuessResult } from '../api';
 import { motion } from 'framer-motion';
+import clsx from 'clsx';
 
 interface AfterActionReportProps {
-  result: RankingResult;
+  victory: boolean;
+  roundNumber: number;
+  result: GuessResult | null;
   onRestart: () => void;
 }
 
-export const AfterActionReport: React.FC<AfterActionReportProps> = ({ result, onRestart }) => {
-  const { score, userRanking, correctRanking } = result;
-  
-  const getDeviation = (commentId: string, actualRankIndex: number) => {
-    const userRankIndex = userRanking.indexOf(commentId);
-    return userRankIndex - actualRankIndex;
-  };
-
+export const AfterActionReport: React.FC<AfterActionReportProps> = ({ victory, roundNumber, result, onRestart }) => {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-soviet-charcoal/95 relative z-30 p-4 overflow-y-auto">
       <motion.div 
@@ -24,57 +20,51 @@ export const AfterActionReport: React.FC<AfterActionReportProps> = ({ result, on
       >
         <div className="flex justify-between items-start mb-8 border-b-4 border-soviet-charcoal pb-4">
             <div>
-                <h1 className="text-5xl md:text-7xl font-soviet text-soviet-charcoal uppercase">Report</h1>
+                <h1 className={clsx("text-5xl md:text-7xl font-soviet uppercase", victory ? "text-green-700" : "text-soviet-red")}>
+                    {victory ? "Mission Complete" : "Failure"}
+                </h1>
                 <div className="text-xl font-mono">Date: {new Date().toLocaleDateString()}</div>
             </div>
             <div className="text-right">
-                 <div className="text-2xl font-soviet uppercase text-soviet-red">Score</div>
-                 <div className="text-6xl font-soviet">{score}/100</div>
+                 <div className="text-2xl font-soviet uppercase text-soviet-charcoal">Completed</div>
+                 <div className="text-6xl font-soviet">{victory ? 5 : roundNumber - 1}/5</div>
             </div>
         </div>
 
         <div className="space-y-4 mb-8">
-            <div className="grid grid-cols-12 gap-2 font-soviet text-xl border-b-2 border-soviet-charcoal pb-2">
-                <div className="col-span-1">#</div>
-                <div className="col-span-7">Comment</div>
-                <div className="col-span-2 text-right">Likes</div>
-                <div className="col-span-2 text-center">Diff</div>
-            </div>
+            <h3 className="font-soviet text-2xl uppercase text-center mb-4">
+                {victory ? "Dissident Status Confirmed" : "Conformity Detected"}
+            </h3>
             
-            {correctRanking.map((comment, index) => {
-                const deviation = getDeviation(comment.id, index);
-                const userRank = userRanking.indexOf(comment.id) + 1;
-                
-                return (
-                    <div key={comment.id} className="grid grid-cols-12 gap-2 items-center border-b border-gray-300 py-2">
-                        <div className="col-span-1 font-soviet text-2xl">{index + 1}</div>
-                        <div className="col-span-7 font-body text-sm font-bold leading-tight">
-                            {comment.text}
-                            <div className="text-xs text-gray-500 mt-1">
-                                You ranked: #{userRank}
+            {result && (
+                <div className="grid grid-cols-1 gap-4">
+                    {result.options.map((option) => (
+                        <div 
+                            key={option.commentId} 
+                            className={clsx(
+                                "p-4 border-2 flex justify-between items-center",
+                                option.isTop ? "bg-red-100 border-red-600" : 
+                                option.commentId === result.selectedOptionId ? "bg-green-100 border-green-600" : "bg-gray-100 border-gray-300 opacity-50"
+                            )}
+                        >
+                            <div className="flex-1">
+                                <p className="font-bold">{option.text}</p>
+                                {option.isTop && <span className="text-xs uppercase text-red-700 font-bold">Sheep Choice (Top Comment)</span>}
+                                {option.commentId === result.selectedOptionId && !option.isTop && <span className="text-xs uppercase text-green-700 font-bold">Your Choice (Safe)</span>}
+                            </div>
+                            <div className="font-mono text-xl ml-4">
+                                {option.likes?.toLocaleString()} <span className="text-xs">likes</span>
                             </div>
                         </div>
-                        <div className="col-span-2 text-right font-mono">
-                            {comment.likes?.toLocaleString()}
-                        </div>
-                        <div className="col-span-2 text-center">
-                            {deviation === 0 ? (
-                                <span className="bg-green-600 text-white px-2 py-1 text-xs font-bold uppercase">Perfect</span>
-                            ) : (
-                                <span className={`px-2 py-1 text-xs font-bold uppercase ${Math.abs(deviation) > 2 ? 'bg-red-600 text-white' : 'bg-yellow-500 text-black'}`}>
-                                    {deviation > 0 ? `-${deviation}` : `+${Math.abs(deviation)}`}
-                                </span>
-                            )}
-                        </div>
-                    </div>
-                );
-            })}
+                    ))}
+                </div>
+            )}
         </div>
 
         <div className="flex justify-center">
              <button 
                 onClick={onRestart}
-                className="bg-soviet-charcoal text-soviet-cream font-soviet text-2xl px-8 py-4 uppercase hover:bg-black transition-colors"
+                className="bg-soviet-charcoal text-soviet-cream font-soviet text-2xl px-8 py-4 uppercase hover:bg-black transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-1 active:translate-y-0"
              >
                 Re-Deploy
              </button>
@@ -84,4 +74,3 @@ export const AfterActionReport: React.FC<AfterActionReportProps> = ({ result, on
     </div>
   );
 };
-

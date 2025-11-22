@@ -22,6 +22,40 @@ export interface RankingResult {
   correctRanking: Comment[];
 }
 
+export interface GameRoundData {
+  roundId: string;
+  videoLink: string;
+  duration: number;
+  options: {
+    commentId: string;
+    text: string;
+  }[];
+}
+
+export interface GuessResult {
+  isCorrect: boolean;
+  selectedOptionId: string;
+  options: {
+    commentId: string;
+    text: string;
+    likes: number;
+    isTop: boolean;
+  }[];
+}
+
+export const getDailyPath = async (): Promise<GameRoundData[]> => {
+  const response = await axios.get(`${API_URL}/daily-challenge`);
+  return response.data;
+};
+
+export const submitGuess = async (roundId: string, commentId: string): Promise<GuessResult> => {
+  const response = await axios.post(`${API_URL}/submit-guess`, {
+    roundId,
+    commentId,
+  });
+  return response.data;
+};
+
 export const getDailyChallenge = async (): Promise<DailyChallengeData> => {
   const response = await axios.get(`${API_URL}/daily-challenge`);
   return response.data;

@@ -55,10 +55,10 @@
       to bottom,
       rgba(255,255,255,0),
       rgba(255,255,255,0) 50%,
-      rgba(0,0,0,0.1) 50%,
-      rgba(0,0,0,0.1)
+      rgba(0,0,0,0.03) 90%,
+      rgba(0,0,0,0.03)
     );
-    background-size: 100% 4px;
+    background-size: 100% 6px;
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
     pointer-events: none;
