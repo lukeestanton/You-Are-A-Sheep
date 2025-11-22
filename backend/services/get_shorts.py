@@ -80,18 +80,14 @@ def _get_video_details(video_id: str):
         print(f"Error fetching video details: {e}")
         return None
 
-def _get_random_short(query: Optional[str] = None):
+def _get_shorts_batch(query: Optional[str] = None, max_results: int = 50) -> List[str]:
+    """
+    Fetches a batch of video IDs for a given query.
+    This reduces API costs by performing ONE search for 50 videos.
+    """
     default_search_terms = [
-        "ludwig",
-        "jschlatt",
-        "squeex",
-        "sambucha",
-        "dougdoug",
-        "northernlion",
-        "penguinz0",
-        "moistcr1tikal",
-        "mrbeast",
-        "veritasium"
+        "ludwig", "jschlatt", "squeex", "sambucha", "dougdoug",
+        "northernlion", "penguinz0", "moistcr1tikal", "mrbeast", "veritasium"
     ]
     
     search_query = query if query else random.choice(default_search_terms)
@@ -100,31 +96,27 @@ def _get_random_short(query: Optional[str] = None):
         "part": "snippet",
         "q": search_query,
         "key": API_KEY,
-        "maxResults": 50, 
+        "maxResults": max_results, 
         "type": "video",
         "videoDuration": "short",
         "order": "viewCount",
     }
 
-    response = requests.get(SEARCH_URL, params=params, timeout=10)
-    response.raise_for_status()
-    data = response.json()
-    
-    items = data.get("items", [])
-    if not items:
-        if query:
-             print(f"No videos found for query '{query}'. Falling back to random.")
-             return _get_random_short(None)
-        return None, None
+    try:
+        response = requests.get(SEARCH_URL, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        items = data.get("items", [])
+        if not items:
+            print(f"No videos found for query '{search_query}'.")
+            return []
 
-    random_video = random.choice(items)
-    video_id = random_video["id"]["videoId"]
-    
-    details = _get_video_details(video_id)
-    if not details or details["duration"] == 0:
-         return None, None
+        return [item["id"]["videoId"] for item in items]
 
-    return video_id, details["title"], details["duration"]
+    except Exception as e:
+        print(f"Error fetching batch shorts: {e}")
+        return []
 
 
 def _get_top_comments(video_id: str, max_comments: int = 20) -> List[Dict]:
@@ -182,17 +174,27 @@ def get_game_round_data():
     pool_item = random.choice(pool)
     return get_round_from_pool_data(pool_item, option_count=3)
 
-def generate_round_data(option_count: int):
-    """Fetches fresh data from YT and returns the full round structure, NOT saving to cache yet."""
-    attempts = 0
-    while attempts < 20:
-        attempts += 1
-        result = _get_random_short()
-        if not result or result[0] is None:
-            continue
+def generate_round_data_batch(option_count: int, batch_size: int = 5):
+    """
+    Efficiently generates multiple rounds by fetching a large batch of video IDs first.
+    """
+    video_ids = _get_shorts_batch() # One API call for 50 candidates
+    
+    # Shuffle them so we don't always take the top ones
+    random.shuffle(video_ids)
+    
+    generated_rounds = []
+    
+    for video_id in video_ids:
+        if len(generated_rounds) >= batch_size:
+            break
             
-        video_id, title, duration = result
-        
+        # Check details (embeddable? duration?) - Cost: 1 unit
+        details = _get_video_details(video_id)
+        if not details or details["duration"] == 0:
+            continue
+
+        # Check comments - Cost: 1 unit
         comments = _get_top_comments(video_id, max_comments=40)
         
         if not comments or len(comments) < 8: 
@@ -212,15 +214,16 @@ def generate_round_data(option_count: int):
             "type": "dissident",
             "video_id": video_id,
             "video_link": VIDEO_LINK + video_id,
-            "title": title,
-            "duration": duration,
+            "title": details["title"],
+            "duration": details["duration"],
             "correct_comment_id": top_comment["id"],
             "top_comment": top_comment,
             "other_comments": other_comments[:20]
         }
-        return round_payload
+        generated_rounds.append(round_payload)
         
-    return None
+    return generated_rounds
+
 
 def populate_daily_pool(target_size: int = 20):
     """Ensures the daily pool has at least target_size videos."""
@@ -231,10 +234,23 @@ def populate_daily_pool(target_size: int = 20):
         return
 
     print(f"Daily Pool: Generating {needed} new rounds...")
-    for _ in range(needed):
-        round_data = generate_round_data(option_count=6)
-        if round_data:
-            save_round_to_pool(round_data, theme="Random")
+    
+    # Instead of calling generate_round_data loop, we batch process
+    # This will loop until we have enough, but using batched searches
+    
+    rounds_collected = 0
+    attempts = 0
+    
+    while rounds_collected < needed and attempts < 5:
+        attempts += 1
+        new_rounds = generate_round_data_batch(option_count=6, batch_size=needed - rounds_collected)
+        
+        for r in new_rounds:
+            save_round_to_pool(r, theme="Random")
+            rounds_collected += 1
+            
+    if rounds_collected < needed:
+        print(f"Warning: Could not fully populate pool. Got {rounds_collected}/{needed}")
             
 def get_round_from_pool_data(pool_item: Dict, option_count: int):
     """Converts stored pool data into a playable round with specific option count."""

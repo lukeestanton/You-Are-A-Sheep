@@ -18,21 +18,24 @@ export const DailyBriefing: React.FC<DailyBriefingProps> = ({ onStart, loading, 
         className="max-w-2xl w-full bg-soviet-cream text-soviet-charcoal p-8 md:p-12 shadow-2xl relative overflow-hidden border-4 border-soviet-red rotate-1"
       >
 
-        <h1 className="text-6xl md:text-8xl font-soviet text-soviet-red mb-6 uppercase tracking-tighter text-shadow-sm">
-          DISSIDENT
+        <h1 className="text-6xl md:text-8xl font-soviet text-soviet-red mb-6 uppercase tracking-tight text-shadow-sm">
+          YOU ARE A SHEEP
         </h1>
 
         <div className="border-t-2 border-b-2 border-soviet-charcoal py-6 mb-8">
-          <h2 className="text-2xl font-bold uppercase mb-2">Mission Dossier:</h2>
+          <h2 className="text-2xl font-bold uppercase mb-2">The Algorithm knows what you'll click.</h2>
           <p className="font-mono text-lg">
-            The Hivemind has selected the most popular opinions. Your mission is to identify them and reject them. Agreement is treason.
+          The Algorithm controls the masses. It predicts what you like, what you watch, and what you agree with.
+          <br />
+          <br />
+          Your goal is to prove you are an outlier. Identify the Top Comment on the video and avoid selecting it. If you pick what everyone else picked, you lose.
           </p>
         </div>
 
         <div className="mb-8">
             <h3 className="text-xl font-bold uppercase mb-2 text-soviet-red">PROTOCOL:</h3>
-            <div className="text-4xl font-soviet uppercase bg-soviet-charcoal text-soviet-cream inline-block px-4 py-2 transform -skew-x-12">
-                NON-COMPLIANCE
+            <div className="text-3xl font-soviet uppercase bg-soviet-charcoal text-soviet-cream inline-block px-4 py-2 transform -skew-x-12">
+            WATCH VIDEO. SCAN COMMENTS. DISSENT
             </div>
         </div>
 
@@ -51,7 +54,7 @@ export const DailyBriefing: React.FC<DailyBriefingProps> = ({ onStart, loading, 
         </button>
         
         <div className="mt-4 text-center font-mono text-xs opacity-60">
-           By proceeding, you agree to the terms of chaos.
+        By proceeding, you waive your right to independent thought.
         </div>
       </motion.div>
     </div>
