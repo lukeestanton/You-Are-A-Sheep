@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from uuid import uuid4
 import re
 import json
+import time
 
 import requests
 
@@ -82,12 +83,11 @@ def _get_video_details(video_id: str):
 
 def _get_shorts_batch(query: Optional[str] = None, max_results: int = 50) -> List[str]:
     """
-    Fetches a batch of video IDs for a given query.
     This reduces API costs by performing ONE search for 50 videos.
     """
     default_search_terms = [
         "ludwig", "jschlatt", "squeex", "sambucha", "dougdoug",
-        "northernlion", "penguinz0", "moistcr1tikal", "mrbeast", "veritasium"
+         "penguinz0", "moistcr1tikal", "mrbeast"
     ]
     
     search_query = query if query else random.choice(default_search_terms)
@@ -175,12 +175,8 @@ def get_game_round_data():
     return get_round_from_pool_data(pool_item, option_count=3)
 
 def generate_round_data_batch(option_count: int, batch_size: int = 5):
-    """
-    Efficiently generates multiple rounds by fetching a large batch of video IDs first.
-    """
-    video_ids = _get_shorts_batch() # One API call for 50 candidates
+    video_ids = _get_shorts_batch()
     
-    # Shuffle them so we don't always take the top ones
     random.shuffle(video_ids)
     
     generated_rounds = []
@@ -188,13 +184,13 @@ def generate_round_data_batch(option_count: int, batch_size: int = 5):
     for video_id in video_ids:
         if len(generated_rounds) >= batch_size:
             break
+        
+        time.sleep(0.1)
             
-        # Check details (embeddable? duration?) - Cost: 1 unit
         details = _get_video_details(video_id)
         if not details or details["duration"] == 0:
             continue
 
-        # Check comments - Cost: 1 unit
         comments = _get_top_comments(video_id, max_comments=40)
         
         if not comments or len(comments) < 8: 
@@ -225,18 +221,14 @@ def generate_round_data_batch(option_count: int, batch_size: int = 5):
     return generated_rounds
 
 
-def populate_daily_pool(target_size: int = 20):
-    """Ensures the daily pool has at least target_size videos."""
-    current_size = get_pool_size()
+def populate_daily_pool(target_size: int = 20, target_date: Optional[str] = None):
+    current_size = get_pool_size(target_date=target_date)
     needed = target_size - current_size
     
     if needed <= 0:
         return
 
-    print(f"Daily Pool: Generating {needed} new rounds...")
-    
-    # Instead of calling generate_round_data loop, we batch process
-    # This will loop until we have enough, but using batched searches
+    print(f"Daily Pool: Generating {needed} new rounds for {target_date if target_date else 'today'}...")
     
     rounds_collected = 0
     attempts = 0
@@ -246,14 +238,13 @@ def populate_daily_pool(target_size: int = 20):
         new_rounds = generate_round_data_batch(option_count=6, batch_size=needed - rounds_collected)
         
         for r in new_rounds:
-            save_round_to_pool(r, theme="Random")
+            save_round_to_pool(r, theme="Random", target_date=target_date)
             rounds_collected += 1
             
     if rounds_collected < needed:
         print(f"Warning: Could not fully populate pool. Got {rounds_collected}/{needed}")
             
 def get_round_from_pool_data(pool_item: Dict, option_count: int):
-    """Converts stored pool data into a playable round with specific option count."""
     round_id = pool_item["roundId"]
     
     top_comment = pool_item["top_comment"]
@@ -284,22 +275,19 @@ def get_round_from_pool_data(pool_item: Dict, option_count: int):
 
 def get_daily_dissident_path():
     """
-    Fetches 5 random unique videos from the daily pool.
-    Generates the path with 6 -> 2 options.
+    Generates the path with 5 -> 3 options, then 5 -> 2 options.
     """
-    
-    populate_daily_pool(target_size=20)
     
     pool = get_daily_pool()
     
-    if len(pool) < 5:
+    if len(pool) < 10:
         raise Exception("Daily pool generation failed, not enough videos.")
         
-    selected_rounds = random.sample(pool, 5)
+    selected_rounds = random.sample(pool, 10)
     
     selected_rounds.sort(key=lambda x: x["duration"], reverse=True)
     
-    rounds_config = [4, 4, 3, 3, 2]
+    rounds_config = [3] * 5 + [2] * 5
     path_data = []
     
     for i, option_count in enumerate(rounds_config):

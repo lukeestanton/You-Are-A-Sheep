@@ -18,7 +18,6 @@ class ThemeManager:
     @classmethod
     def get_daily_theme(cls) -> str:
         """
-        Returns a theme based on the current date.
         Ensures the same theme is selected for the entire day.
         """
         today = datetime.now().date()

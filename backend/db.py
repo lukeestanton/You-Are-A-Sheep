@@ -6,7 +6,6 @@ from typing import List, Dict, Optional
 DB_PATH = "game_data.db"
 
 def init_db():
-    """Initialize the database tables."""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
@@ -22,30 +21,28 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_round_to_pool(round_data: Dict, theme: str):
-    """Saves a generated round to today's pool."""
+def save_round_to_pool(round_data: Dict, theme: str, target_date: Optional[str] = None):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    today = date.today().isoformat()
+    date_val = target_date if target_date else date.today().isoformat()
     
     c.execute('''
         INSERT OR REPLACE INTO daily_pool (date, round_id, round_data, theme)
         VALUES (?, ?, ?, ?)
-    ''', (today, round_data['roundId'], json.dumps(round_data), theme))
+    ''', (date_val, round_data['roundId'], json.dumps(round_data), theme))
     
     conn.commit()
     conn.close()
 
-def get_daily_pool(theme_filter: Optional[str] = None) -> List[Dict]:
-    """Retrieves all rounds available for today."""
+def get_daily_pool(theme_filter: Optional[str] = None, target_date: Optional[str] = None) -> List[Dict]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    today = date.today().isoformat()
+    date_val = target_date if target_date else date.today().isoformat()
     
     query = "SELECT round_data FROM daily_pool WHERE date = ?"
-    params = [today]
+    params = [date_val]
     
     if theme_filter:
         query += " AND theme = ?"
@@ -57,11 +54,11 @@ def get_daily_pool(theme_filter: Optional[str] = None) -> List[Dict]:
     
     return [json.loads(row[0]) for row in rows]
 
-def get_pool_size() -> int:
+def get_pool_size(target_date: Optional[str] = None) -> int:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    today = date.today().isoformat()
-    c.execute("SELECT COUNT(*) FROM daily_pool WHERE date = ?", (today,))
+    date_val = target_date if target_date else date.today().isoformat()
+    c.execute("SELECT COUNT(*) FROM daily_pool WHERE date = ?", (date_val,))
     count = c.fetchone()[0]
     conn.close()
     return count

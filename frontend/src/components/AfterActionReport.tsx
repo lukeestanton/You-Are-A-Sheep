@@ -27,7 +27,7 @@ export const AfterActionReport: React.FC<AfterActionReportProps> = ({ victory, r
             </div>
             <div className="text-right">
                  <div className="text-2xl font-soviet uppercase text-soviet-charcoal">Completed</div>
-                 <div className="text-6xl font-soviet">{victory ? 5 : roundNumber - 1}/5</div>
+                 <div className="text-6xl font-soviet">{victory ? 10 : roundNumber - 1}/10</div>
             </div>
         </div>
 
